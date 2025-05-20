@@ -1,0 +1,82 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+html, body {
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+body {
+  background: #181824;
+  color: #f8f8f2;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 100vh;
+  margin: 0;
+}
+h1 {
+  margin-top: 32px;
+  margin-bottom: 8px;
+}
+p {
+  margin-bottom: 16px;
+}
+#leaderboard {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  background: #23234aee;
+  color: #ffe066;
+  z-index: 10;
+  box-shadow: 0 2px 12px #0008;
+  padding: 0.5em 0 0.5em 0;
+  text-align: center;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+}
+.leaderboard-title {
+  font-size: 2.2em;
+  font-weight: bold;
+  letter-spacing: 2px;
+  margin-bottom: 0.2em;
+  color: #fff;
+  text-shadow: 0 2px 8px #000a;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+}
+.leaderboard-row {
+  font-size: 1.5em;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1.5em;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+}
+.leaderboard-player {
+  font-weight: bold;
+  color: #ffe066;
+  text-shadow: 0 1px 4px #000a;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+}
+.leaderboard-vs {
+  color: #fff;
+  font-weight: bold;
+  font-size: 1.2em;
+  margin: 0 0.5em;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+}
+#gameCanvas {
+  background: #22223b;
+  border: 4px solid #4a4e69;
+  border-radius: 12px;
+  box-shadow: 0 4px 32px #0008;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  margin-top: 0;
+} 
