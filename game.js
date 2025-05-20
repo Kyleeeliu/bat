@@ -8,8 +8,14 @@ const COURT_HEIGHT = 240;
 const NET_HEIGHT = 64;
 const GROUND_Y = COURT_HEIGHT - 32;
 
+// Player indicator
+const ARROW_SIZE = 16;
+const ARROW_COLOR = '#4287f5';
+const ARROW_OFFSET_Y = -10;
+
 // Bat settings
 const SPRITE_SIZE = 64;
+const BAT_HITBOX_RADIUS = 22; // Shrunk hitbox for better gameplay
 const batState = { name: 'IdleFly', file: 'Bat-IdleFly.png', frames: 4 };
 const batSprites = {};
 let loadedSprites = 0;
@@ -42,6 +48,25 @@ let aiBatY = GROUND_Y - SPRITE_SIZE;
 let aiBatVY = 0;
 let aiOnGround = false;
 let aiFacing = -1;
+
+// Second AI Bat
+let ai2BatX = COURT_WIDTH - 160 - SPRITE_SIZE;
+let ai2BatY = GROUND_Y - SPRITE_SIZE;
+let ai2BatVY = 0;
+let ai2OnGround = false;
+let ai2Facing = -1;
+let ai2Skill = 'idle';
+let ai2SkillTimer = 0;
+
+// Teammate AI
+let teammateBatX = 120;
+let teammateBatY = GROUND_Y - SPRITE_SIZE;
+let teammateBatVY = 0;
+let teammateOnGround = true; // Always true since no jumping
+let teammateFacing = 1;
+let teammateSkill = 'idle';
+let teammateSkillTimer = 0;
+let teammateLastTouch = 0; // Track when teammate last touched the ball
 
 // Ball settings (slower)
 let ballX = COURT_WIDTH / 2;
@@ -138,7 +163,7 @@ function updateBat() {
   let dx = ballX - batCenterX;
   let dy = ballY - batCenterY;
   let dist = Math.sqrt(dx * dx + dy * dy);
-  if (dist < BALL_RADIUS + SPRITE_SIZE / 2 + 8) canSkill = true;
+  if (dist < BALL_RADIUS + BAT_HITBOX_RADIUS + 8) canSkill = true;
 
   if (batSkill !== "spike" && canSkill && skillTimer <= 0 && ballX < COURT_WIDTH / 2) {
     // Only allow bump on first touch
@@ -155,8 +180,8 @@ function updateBat() {
       batSkill = "set";
       lastSkill = "set";
       canSpike = true;
-      ballVX = 0.8 * (ballX < COURT_WIDTH/2 ? 1 : -1);
-      ballVY = -3.5;
+      ballVX = 0; // Completely vertical set
+      ballVY = -4.2; // Slightly stronger upward velocity for vertical set
       skillTimer = 18;
     }
     // Spike (Shift, only after set, airborne, ball above bat) on 2nd/3rd touch
@@ -182,24 +207,88 @@ function updateBat() {
   if (skillTimer === 0 && batSkill !== "idle") batSkill = "idle";
 }
 
+function updateTeammateAI() {
+  // Simple AI: follow ball on left side, focus on setting and bumping
+  let targetX = ballX - SPRITE_SIZE / 2;
+  let dx = ballX - (teammateBatX + SPRITE_SIZE / 2);
+  
+  // Only move if ball is on team's side
+  if (ballX < COURT_WIDTH / 2) {
+    // Stay in the back half of the court
+    if (teammateBatX < COURT_WIDTH / 4) {
+      teammateBatX += batSpeed * 0.7;
+      teammateFacing = -1;
+    } else if (teammateBatX > COURT_WIDTH / 2 - SPRITE_SIZE) {
+      teammateBatX -= batSpeed * 0.7;
+      teammateFacing = 1;
+    } else if (Math.abs(dx) > 8) {
+      teammateBatX += Math.sign(dx) * batSpeed * 0.7;
+      teammateFacing = dx < 0 ? 1 : -1;
+    }
+  }
+
+  // No jumping logic since teammate stays on ground
+
+  // Clamp to left side
+  if (teammateBatX < 0) teammateBatX = 0;
+  if (teammateBatX > COURT_WIDTH / 2 - SPRITE_SIZE) teammateBatX = COURT_WIDTH / 2 - SPRITE_SIZE;
+  teammateBatY = GROUND_Y - SPRITE_SIZE; // Always stay on ground
+
+  // Teammate skill logic
+  let canSkill = false;
+  let teammateBatCenterX = teammateBatX + SPRITE_SIZE / 2;
+  let teammateBatCenterY = teammateBatY + SPRITE_SIZE / 2;
+  let dxBall = ballX - teammateBatCenterX;
+  let dyBall = ballY - teammateBatCenterY;
+  let dist = Math.sqrt(dxBall * dxBall + dyBall * dyBall);
+  
+  if (dist < BALL_RADIUS + SPRITE_SIZE / 2 + 8) canSkill = true;
+
+  // Check if enough time has passed since last touch (prevent consecutive touches)
+  let canTouchBall = (performance.now() - teammateLastTouch) > 1000; // 1 second cooldown
+
+  if (canSkill && teammateSkillTimer <= 0 && ballX < COURT_WIDTH / 2 && canTouchBall) {
+    // Bump on first touch
+    if (playerTouches === 0) {
+      teammateSkill = 'bump';
+      ballVX = 0.8;
+      ballVY = -2.5;
+      teammateSkillTimer = 18;
+      teammateLastTouch = performance.now();
+    }
+    // Vertical set on second touch
+    else if (playerTouches === 1) {
+      teammateSkill = 'set';
+      ballVX = 0; // Completely vertical
+      ballVY = -4.2;
+      teammateSkillTimer = 18;
+      teammateLastTouch = performance.now();
+    }
+  }
+
+  if (teammateSkillTimer > 0) teammateSkillTimer--;
+  if (teammateSkillTimer === 0 && teammateSkill !== 'idle') teammateSkill = 'idle';
+}
+
 function updateAIBat() {
-  // Simple AI: follow ball if on right side
+  // Simple AI: follow ball if on right side (weakened version)
   let targetY = ballY - SPRITE_SIZE / 2;
   let dx = ballX - (aiBatX + SPRITE_SIZE / 2);
   // Only move if ball is on AI's side or above net
   if (ballX > COURT_WIDTH / 2 || ballY < GROUND_Y - NET_HEIGHT) {
     if (Math.abs(dx) > 8) {
-      aiBatX += Math.sign(dx) * batSpeed * 0.9;
+      aiBatX += Math.sign(dx) * batSpeed * 0.7; // Reduced speed
       aiFacing = dx < 0 ? 1 : -1;
     }
-    // AI jump if ball is above
-    if (ballY < aiBatY && aiOnGround && Math.abs(dx) < 48) {
-      aiBatVY = -batJump;
+    // AI jump if ball is high and close (more restrictive conditions)
+    if (ballY < aiBatY - SPRITE_SIZE/2 && aiOnGround && Math.abs(dx) < 32 && Math.random() > 0.7) {
+      aiBatVY = -batJump * 0.9;
       aiOnGround = false;
     }
   }
   aiBatY += aiBatVY;
   aiBatVY += GRAVITY_BAT;
+  
   // Clamp to right side
   if (aiBatX < COURT_WIDTH / 2) aiBatX = COURT_WIDTH / 2;
   if (aiBatX > COURT_WIDTH - SPRITE_SIZE) aiBatX = COURT_WIDTH - SPRITE_SIZE;
@@ -250,6 +339,45 @@ function updateAIBat() {
   }
   if (aiSkillTimer > 0) aiSkillTimer--;
   if (aiSkillTimer === 0 && aiSkill !== 'idle') aiSkill = 'idle';
+}
+
+function updateAI2Bat() {
+  // Second AI focuses on setting up spikes for the main AI
+  let dx = ballX - (ai2BatX + SPRITE_SIZE / 2);
+  
+  // Only move if ball is on AI's side
+  if (ballX > COURT_WIDTH / 2) {
+    // Stay in the back portion of the right court
+    if (ai2BatX < COURT_WIDTH * 0.75) {
+      ai2BatX += batSpeed * 0.6;
+      ai2Facing = -1;
+    } else if (ai2BatX > COURT_WIDTH - SPRITE_SIZE) {
+      ai2BatX -= batSpeed * 0.6;
+      ai2Facing = 1;
+    } else if (Math.abs(dx) > 8) {
+      ai2BatX += Math.sign(dx) * batSpeed * 0.6;
+      ai2Facing = dx < 0 ? 1 : -1;
+    }
+    
+    // Jump less frequently than main AI
+    if (ballY < ai2BatY - SPRITE_SIZE/2 && ai2OnGround && Math.abs(dx) < 48 && Math.random() > 0.8) {
+      ai2BatVY = -batJump * 0.8;
+      ai2OnGround = false;
+    }
+  }
+  
+  ai2BatY += ai2BatVY;
+  ai2BatVY += GRAVITY_BAT;
+  
+  // Clamp to right side
+  if (ai2BatX < COURT_WIDTH / 2) ai2BatX = COURT_WIDTH / 2;
+  if (ai2BatX > COURT_WIDTH - SPRITE_SIZE) ai2BatX = COURT_WIDTH - SPRITE_SIZE;
+  if (ai2BatY > GROUND_Y - SPRITE_SIZE) {
+    ai2BatY = GROUND_Y - SPRITE_SIZE;
+    ai2BatVY = 0;
+    ai2OnGround = true;
+  }
+  if (ai2BatY < 0) ai2BatY = 0;
 }
 
 function updateLeaderboardUI() {
@@ -332,7 +460,7 @@ function updateBall() {
   let dx = ballX - batCenterX;
   let dy = ballY - batCenterY;
   let dist = Math.sqrt(dx * dx + dy * dy);
-  if (dist < BALL_RADIUS + SPRITE_SIZE / 2 - 8) {
+  if (dist < BALL_RADIUS + BAT_HITBOX_RADIUS - 8) {
     if (lastTouchedBy !== 'player') {
       playerTouches++;
       lastTouchedBy = 'player';
@@ -341,8 +469,27 @@ function updateBall() {
     let force = 3.5;
     ballVX = Math.cos(angle) * force;
     ballVY = Math.sin(angle) * force;
-    ballX = batCenterX + Math.cos(angle) * (BALL_RADIUS + SPRITE_SIZE / 2 - 8);
-    ballY = batCenterY + Math.sin(angle) * (BALL_RADIUS + SPRITE_SIZE / 2 - 8);
+    ballX = batCenterX + Math.cos(angle) * (BALL_RADIUS + BAT_HITBOX_RADIUS - 8);
+    ballY = batCenterY + Math.sin(angle) * (BALL_RADIUS + BAT_HITBOX_RADIUS - 8);
+  }
+
+  // Bat collision (teammate)
+  let teammateBatCenterX = teammateBatX + SPRITE_SIZE / 2;
+  let teammateBatCenterY = teammateBatY + SPRITE_SIZE / 2;
+  let tdx = ballX - teammateBatCenterX;
+  let tdy = ballY - teammateBatCenterY;
+  let tdist = Math.sqrt(tdx * tdx + tdy * tdy);
+  if (tdist < BALL_RADIUS + BAT_HITBOX_RADIUS - 8) {
+    if (lastTouchedBy !== 'player') {
+      playerTouches++;
+      lastTouchedBy = 'player';
+    }
+    let angle = Math.atan2(tdy, tdx);
+    let force = 3.5;
+    ballVX = Math.cos(angle) * force;
+    ballVY = Math.sin(angle) * force;
+    ballX = teammateBatCenterX + Math.cos(angle) * (BALL_RADIUS + BAT_HITBOX_RADIUS - 8);
+    ballY = teammateBatCenterY + Math.sin(angle) * (BALL_RADIUS + BAT_HITBOX_RADIUS - 8);
   }
   // Bat collision (AI)
   let aiBatCenterX = aiBatX + SPRITE_SIZE / 2;
@@ -350,7 +497,7 @@ function updateBall() {
   let adx = ballX - aiBatCenterX;
   let ady = ballY - aiBatCenterY;
   let adist = Math.sqrt(adx * adx + ady * ady);
-  if (adist < BALL_RADIUS + SPRITE_SIZE / 2 - 8) {
+  if (adist < BALL_RADIUS + BAT_HITBOX_RADIUS - 8) {
     if (lastTouchedBy !== 'ai') {
       aiTouches++;
       lastTouchedBy = 'ai';
@@ -359,8 +506,27 @@ function updateBall() {
     let force = 3.5;
     ballVX = Math.cos(angle) * force;
     ballVY = Math.sin(angle) * force;
-    ballX = aiBatCenterX + Math.cos(angle) * (BALL_RADIUS + SPRITE_SIZE / 2 - 8);
-    ballY = aiBatCenterY + Math.sin(angle) * (BALL_RADIUS + SPRITE_SIZE / 2 - 8);
+    ballX = aiBatCenterX + Math.cos(angle) * (BALL_RADIUS + BAT_HITBOX_RADIUS - 8);
+    ballY = aiBatCenterY + Math.sin(angle) * (BALL_RADIUS + BAT_HITBOX_RADIUS - 8);
+  }
+
+  // Bat collision (AI 2)
+  let ai2BatCenterX = ai2BatX + SPRITE_SIZE / 2;
+  let ai2BatCenterY = ai2BatY + SPRITE_SIZE / 2;
+  let a2dx = ballX - ai2BatCenterX;
+  let a2dy = ballY - ai2BatCenterY;
+  let a2dist = Math.sqrt(a2dx * a2dx + a2dy * a2dy);
+  if (a2dist < BALL_RADIUS + BAT_HITBOX_RADIUS - 8) {
+    if (lastTouchedBy !== 'ai') {
+      aiTouches++;
+      lastTouchedBy = 'ai';
+    }
+    let angle = Math.atan2(a2dy, a2dx);
+    let force = 3.5;
+    ballVX = Math.cos(angle) * force;
+    ballVY = Math.sin(angle) * force;
+    ballX = ai2BatCenterX + Math.cos(angle) * (BALL_RADIUS + BAT_HITBOX_RADIUS - 8);
+    ballY = ai2BatCenterY + Math.sin(angle) * (BALL_RADIUS + BAT_HITBOX_RADIUS - 8);
   }
 }
 
@@ -442,6 +608,83 @@ function drawAIBat() {
   ctx.save();
   ctx.translate(aiBatX, aiBatY);
   if (aiFacing === -1) {
+    ctx.translate(SPRITE_SIZE / 2, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(
+      batSprites[batState.name],
+      batFrame * SPRITE_SIZE, 0, SPRITE_SIZE, SPRITE_SIZE,
+      -SPRITE_SIZE / 2, 0, SPRITE_SIZE, SPRITE_SIZE
+    );
+  } else {
+    ctx.drawImage(
+      batSprites[batState.name],
+      batFrame * SPRITE_SIZE, 0, SPRITE_SIZE, SPRITE_SIZE,
+      0, 0, SPRITE_SIZE, SPRITE_SIZE
+    );
+  }
+  ctx.restore();
+  ctx.restore();
+}
+
+function drawTeammateBat() {
+  const offsetX = (canvas.width / 2 - (COURT_WIDTH * ZOOM) / 2);
+  const offsetY = (canvas.height / 2 - (COURT_HEIGHT * ZOOM) / 2);
+  ctx.save();
+  ctx.translate(offsetX, offsetY);
+  ctx.scale(ZOOM, ZOOM);
+  ctx.save();
+  ctx.translate(teammateBatX, teammateBatY);
+  if (teammateFacing === -1) {
+    ctx.translate(SPRITE_SIZE / 2, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(
+      batSprites[batState.name],
+      batFrame * SPRITE_SIZE, 0, SPRITE_SIZE, SPRITE_SIZE,
+      -SPRITE_SIZE / 2, 0, SPRITE_SIZE, SPRITE_SIZE
+    );
+  } else {
+    ctx.drawImage(
+      batSprites[batState.name],
+      batFrame * SPRITE_SIZE, 0, SPRITE_SIZE, SPRITE_SIZE,
+      0, 0, SPRITE_SIZE, SPRITE_SIZE
+    );
+  }
+  ctx.restore();
+  ctx.restore();
+}
+
+function drawPlayerArrow() {
+  const offsetX = (canvas.width / 2 - (COURT_WIDTH * ZOOM) / 2);
+  const offsetY = (canvas.height / 2 - (COURT_HEIGHT * ZOOM) / 2);
+  ctx.save();
+  ctx.translate(offsetX, offsetY);
+  ctx.scale(ZOOM, ZOOM);
+  
+  // Draw arrow above player
+  ctx.beginPath();
+  ctx.moveTo(batX + SPRITE_SIZE/2, batY + ARROW_OFFSET_Y);
+  ctx.lineTo(batX + SPRITE_SIZE/2 - ARROW_SIZE/2, batY + ARROW_OFFSET_Y - ARROW_SIZE);
+  ctx.lineTo(batX + SPRITE_SIZE/2 + ARROW_SIZE/2, batY + ARROW_OFFSET_Y - ARROW_SIZE);
+  ctx.closePath();
+  
+  ctx.fillStyle = ARROW_COLOR;
+  ctx.fill();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  
+  ctx.restore();
+}
+
+function drawAI2Bat() {
+  const offsetX = (canvas.width / 2 - (COURT_WIDTH * ZOOM) / 2);
+  const offsetY = (canvas.height / 2 - (COURT_HEIGHT * ZOOM) / 2);
+  ctx.save();
+  ctx.translate(offsetX, offsetY);
+  ctx.scale(ZOOM, ZOOM);
+  ctx.save();
+  ctx.translate(ai2BatX, ai2BatY);
+  if (ai2Facing === -1) {
     ctx.translate(SPRITE_SIZE / 2, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(
@@ -580,7 +823,9 @@ window.addEventListener('touchstart', startGameFromScreen);
 function gameLoop() {
   if (gameState === 'play') {
     updateBat();
+    updateTeammateAI();
     updateAIBat();
+    updateAI2Bat();
     updateBall();
   } else if (gameState === 'serve') {
     updateAIServe();
@@ -588,8 +833,11 @@ function gameLoop() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawCourt();
   drawBall();
+  drawTeammateBat();
   drawBat();
+  drawPlayerArrow();
   drawAIBat();
+  drawAI2Bat();
   if (gameState === 'serve') drawServeOverlay();
   if (gameState === 'start') drawStartScreen();
   requestAnimationFrame(gameLoop);
