@@ -15,7 +15,7 @@ const ARROW_OFFSET_Y = -10;
 
 // Bat settings
 const SPRITE_SIZE = 64;
-const BAT_HITBOX_RADIUS = 22; // Shrunk hitbox for better gameplay
+const BAT_HITBOX_RADIUS = 14; // Smaller hitbox for more precise collision
 const batState = { name: 'IdleFly', file: 'Bat-IdleFly.png', frames: 4 };
 const batSprites = {};
 let loadedSprites = 0;
@@ -73,7 +73,7 @@ let ballX = COURT_WIDTH / 2;
 let ballY = 80;
 let ballVX = 1.2; // slower
 let ballVY = -1.2; // slower
-const BALL_RADIUS = 16;
+const BALL_RADIUS = 10;
 const GRAVITY_BAT = 0.35;
 const GRAVITY_BALL = 0.08;
 const BALL_BOUNCE = 0.55; // less bouncy
@@ -120,6 +120,12 @@ let aiTouches = 0;
 let lastSide = null; // 'player' or 'ai'
 let lastTouchedBy = null; // 'player', 'ai', or null
 
+// Debug toggle
+let debugMode = false;
+window.addEventListener('keydown', e => {
+  if (e.key.toLowerCase() === 'h') debugMode = !debugMode;
+});
+
 function resetTouches() {
   playerTouches = 0;
   aiTouches = 0;
@@ -163,7 +169,7 @@ function updateBat() {
   let dx = ballX - batCenterX;
   let dy = ballY - batCenterY;
   let dist = Math.sqrt(dx * dx + dy * dy);
-  if (dist < BALL_RADIUS + BAT_HITBOX_RADIUS + 8) canSkill = true;
+  if (dist < BALL_RADIUS + BAT_HITBOX_RADIUS - 8) canSkill = true;
 
   if (batSkill !== "spike" && canSkill && skillTimer <= 0 && ballX < COURT_WIDTH / 2) {
     // Only allow bump on first touch
@@ -184,14 +190,15 @@ function updateBat() {
       ballVY = -4.2; // Slightly stronger upward velocity for vertical set
       skillTimer = 18;
     }
-    // Spike (Shift, only after set, airborne, ball above bat) on 2nd/3rd touch
-    else if (playerTouches > 0 && playerTouches < 3 && (keys['shift'] || keys['shiftleft'] || keys['shiftright']) && canSpike && !onGround && ballY < batY + 8 && lastSkill === "set") {
+    // Spike (automatic, only after set, airborne, ball above bat) on 2nd/3rd touch
+    else if (playerTouches > 0 && playerTouches < 3 && canSpike && !onGround && ballY < batY + 8 && lastSkill === "set") {
       batSkill = "spike";
       lastSkill = "spike";
       canSpike = false;
       ballVX = 3.2 * (ballX < COURT_WIDTH/2 ? 1 : -1);
       ballVY = 4.2;
       skillTimer = 20;
+      spawnSpikeParticles(ballX, ballY);
     }
     // Block (E, in air, near net, ball above) on 2nd/3rd touch
     else if (playerTouches > 0 && playerTouches < 3 && keys['e'] && !onGround && Math.abs(batX + SPRITE_SIZE/2 - COURT_WIDTH/2) < 40 && ballY < batY + 8) {
@@ -271,18 +278,18 @@ function updateTeammateAI() {
 }
 
 function updateAIBat() {
-  // Simple AI: follow ball if on right side (weakened version)
+  // Nerfed AI: slower, jumps less, less precise
   let targetY = ballY - SPRITE_SIZE / 2;
   let dx = ballX - (aiBatX + SPRITE_SIZE / 2);
   // Only move if ball is on AI's side or above net
   if (ballX > COURT_WIDTH / 2 || ballY < GROUND_Y - NET_HEIGHT) {
-    if (Math.abs(dx) > 8) {
-      aiBatX += Math.sign(dx) * batSpeed * 0.7; // Reduced speed
+    if (Math.abs(dx) > 16) { // Less precise
+      aiBatX += Math.sign(dx) * batSpeed * 0.45; // Slower
       aiFacing = dx < 0 ? 1 : -1;
     }
-    // AI jump if ball is high and close (more restrictive conditions)
-    if (ballY < aiBatY - SPRITE_SIZE/2 && aiOnGround && Math.abs(dx) < 32 && Math.random() > 0.7) {
-      aiBatVY = -batJump * 0.9;
+    // AI jump if ball is high and close (even more restrictive)
+    if (ballY < aiBatY - SPRITE_SIZE/2 && aiOnGround && Math.abs(dx) < 24 && Math.random() > 0.92) { // Very rare
+      aiBatVY = -batJump * 0.6; // Lower jump
       aiOnGround = false;
     }
   }
@@ -327,7 +334,7 @@ function updateAIBat() {
       ballVY = -3.5;
       aiSkillTimer = 18;
     }
-    // Spike (only after set, airborne, ball above bat) on 2nd/3rd touch
+    // Spike (automatic, only after set, airborne, ball above bat) on 2nd/3rd touch
     else if (aiTouches > 0 && aiTouches < 3 && aiCanSpike && !aiOnGround && ballY < aiBatY + 8 && aiLastSkill === 'set') {
       aiSkill = 'spike';
       aiLastSkill = 'spike';
@@ -335,6 +342,7 @@ function updateAIBat() {
       ballVX = -3.2;
       ballVY = 4.2;
       aiSkillTimer = 20;
+      spawnSpikeParticles(ballX, ballY);
     }
   }
   if (aiSkillTimer > 0) aiSkillTimer--;
@@ -342,26 +350,25 @@ function updateAIBat() {
 }
 
 function updateAI2Bat() {
-  // Second AI focuses on setting up spikes for the main AI
+  // Nerfed second AI: even slower, jumps very rarely
   let dx = ballX - (ai2BatX + SPRITE_SIZE / 2);
   
   // Only move if ball is on AI's side
   if (ballX > COURT_WIDTH / 2) {
     // Stay in the back portion of the right court
     if (ai2BatX < COURT_WIDTH * 0.75) {
-      ai2BatX += batSpeed * 0.6;
+      ai2BatX += batSpeed * 0.35;
       ai2Facing = -1;
     } else if (ai2BatX > COURT_WIDTH - SPRITE_SIZE) {
-      ai2BatX -= batSpeed * 0.6;
+      ai2BatX -= batSpeed * 0.35;
       ai2Facing = 1;
-    } else if (Math.abs(dx) > 8) {
-      ai2BatX += Math.sign(dx) * batSpeed * 0.6;
+    } else if (Math.abs(dx) > 16) {
+      ai2BatX += Math.sign(dx) * batSpeed * 0.35;
       ai2Facing = dx < 0 ? 1 : -1;
     }
-    
-    // Jump less frequently than main AI
-    if (ballY < ai2BatY - SPRITE_SIZE/2 && ai2OnGround && Math.abs(dx) < 48 && Math.random() > 0.8) {
-      ai2BatVY = -batJump * 0.8;
+    // Jump very rarely
+    if (ballY < ai2BatY - SPRITE_SIZE/2 && ai2OnGround && Math.abs(dx) < 32 && Math.random() > 0.97) {
+      ai2BatVY = -batJump * 0.5;
       ai2OnGround = false;
     }
   }
@@ -380,15 +387,6 @@ function updateAI2Bat() {
   if (ai2BatY < 0) ai2BatY = 0;
 }
 
-function updateLeaderboardUI() {
-  const playerScoreElem = document.getElementById('playerScoreUI');
-  const aiScoreElem = document.getElementById('aiScoreUI');
-  if (playerScoreElem && aiScoreElem) {
-    playerScoreElem.innerText = playerScore;
-    aiScoreElem.innerText = aiScore;
-  }
-}
-
 function updateBall() {
   if (gameState !== 'play') return;
   // Track which side the ball is on
@@ -405,13 +403,11 @@ function updateBall() {
     // Score check
     if (ballX < COURT_WIDTH / 2) {
       aiScore++;
-      updateLeaderboardUI();
       server = 'player';
       startServe();
       return;
     } else if (ballX > COURT_WIDTH / 2) {
       playerScore++;
-      updateLeaderboardUI();
       server = 'ai';
       startServe();
       return;
@@ -423,14 +419,12 @@ function updateBall() {
   // 3-touch rule
   if (playerTouches > 3) {
     aiScore++;
-    updateLeaderboardUI();
     server = 'ai';
     startServe();
     return;
   }
   if (aiTouches > 3) {
     playerScore++;
-    updateLeaderboardUI();
     server = 'player';
     startServe();
     return;
@@ -450,9 +444,30 @@ function updateBall() {
     ballX - BALL_RADIUS < COURT_WIDTH / 2 + 4 &&
     ballY + BALL_RADIUS > GROUND_Y - NET_HEIGHT
   ) {
-    if (ballVX > 0) ballX = COURT_WIDTH / 2 - BALL_RADIUS - 4;
-    else ballX = COURT_WIDTH / 2 + BALL_RADIUS + 4;
-    ballVX *= -1;
+    // If the ball is above the net and coming down, bounce it up
+    if (ballY < GROUND_Y - NET_HEIGHT + BALL_RADIUS && ballVY > 0) {
+      ballY = GROUND_Y - NET_HEIGHT - BALL_RADIUS;
+      ballVY = -Math.max(Math.abs(ballVY), 1.2); // always bounce up strongly
+      // Nudge horizontally away from net
+      if (ballX < COURT_WIDTH / 2) {
+        ballX = COURT_WIDTH / 2 - BALL_RADIUS - 12;
+        ballVX = -Math.max(Math.abs(ballVX), 1.2); // always left
+      } else {
+        ballX = COURT_WIDTH / 2 + BALL_RADIUS + 12;
+        ballVX = Math.max(Math.abs(ballVX), 1.2); // always right
+      }
+    } else {
+      // Side collision (normal case)
+      if (ballVX > 0) {
+        ballX = COURT_WIDTH / 2 - BALL_RADIUS - 12;
+        ballVX = -Math.max(Math.abs(ballVX), 1.2);
+      } else {
+        ballX = COURT_WIDTH / 2 + BALL_RADIUS + 12;
+        ballVX = Math.max(Math.abs(ballVX), 1.2);
+      }
+      // Nudge ball vertically if stuck
+      if (Math.abs(ballVY) < 0.7) ballVY += (Math.random() - 0.5) * 1.8;
+    }
   }
   // Bat collision (player)
   let batCenterX = batX + SPRITE_SIZE / 2;
@@ -530,22 +545,232 @@ function updateBall() {
   }
 }
 
+// --- Scoreboard State ---
+let setNumber = 1;
+let playerSets = 0;
+let aiSets = 0;
+
+function drawScoreboard() {
+  // Digital scoreboard style
+  const scoreboardH = 64;
+  ctx.save();
+  ctx.translate(0, 0);
+  ctx.globalAlpha = 0.98;
+  // Metallic frame
+  let grad = ctx.createLinearGradient(0, 0, 0, scoreboardH);
+  grad.addColorStop(0, '#bfcfff');
+  grad.addColorStop(0.5, '#232946');
+  grad.addColorStop(1, '#bfcfff');
+  ctx.fillStyle = grad;
+  ctx.fillRect(canvas.width/2-270, 0, 540, scoreboardH);
+  ctx.strokeStyle = '#ffe066';
+  ctx.lineWidth = 5;
+  ctx.strokeRect(canvas.width/2-270, 0, 540, scoreboardH);
+  // Glow effect
+  ctx.save();
+  ctx.shadowColor = '#ffe066';
+  ctx.shadowBlur = 16;
+  ctx.strokeRect(canvas.width/2-270, 0, 540, scoreboardH);
+  ctx.restore();
+  // Title
+  ctx.font = 'bold 28px "Press Start 2P", monospace';
+  ctx.fillStyle = '#ffe066';
+  ctx.textAlign = 'center';
+  ctx.shadowColor = '#000';
+  ctx.shadowBlur = 8;
+  ctx.fillText('BAT VOLLEYBALL TOURNAMENT', canvas.width/2, 36);
+  ctx.shadowBlur = 0;
+  // Team names
+  ctx.font = 'bold 20px "Press Start 2P", monospace';
+  ctx.fillStyle = '#bfcfff';
+  ctx.textAlign = 'right';
+  ctx.fillText('YOU', canvas.width/2-120, 60);
+  ctx.textAlign = 'left';
+  ctx.fillText('ENEMY', canvas.width/2+120, 60);
+  // Scores (digital style)
+  ctx.font = 'bold 40px "Press Start 2P", monospace';
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'right';
+  ctx.shadowColor = '#ffe066';
+  ctx.shadowBlur = 12;
+  ctx.fillText(playerScore, canvas.width/2-40, 60);
+  ctx.textAlign = 'left';
+  ctx.fillText(aiScore, canvas.width/2+40, 60);
+  ctx.shadowBlur = 0;
+  // Sets
+  ctx.font = 'bold 18px "Press Start 2P", monospace';
+  ctx.fillStyle = '#ffe066';
+  ctx.textAlign = 'center';
+  ctx.fillText(`SET ${setNumber}  |  YOU: ${playerSets}  ENEMY: ${aiSets}`, canvas.width/2, 60);
+  // Serving indicator
+  ctx.font = 'bold 16px "Press Start 2P", monospace';
+  ctx.fillStyle = '#ffe066';
+  if (server === 'player') {
+    ctx.beginPath();
+    ctx.arc(canvas.width/2-140, 44, 10, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = '#181824';
+    ctx.font = 'bold 16px "Press Start 2P", monospace';
+    ctx.fillText('S', canvas.width/2-140, 50);
+  } else {
+    ctx.beginPath();
+    ctx.arc(canvas.width/2+140, 44, 10, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = '#181824';
+    ctx.font = 'bold 16px "Press Start 2P", monospace';
+    ctx.fillText('S', canvas.width/2+140, 50);
+  }
+  ctx.restore();
+}
+
+// Redesign drawCourt for a real volleyball court look
 function drawCourt() {
   // Center court in window
   const offsetX = (canvas.width / 2 - (COURT_WIDTH * ZOOM) / 2);
-  const offsetY = (canvas.height / 2 - (COURT_HEIGHT * ZOOM) / 2);
+  const offsetY = (canvas.height / 2 - (COURT_HEIGHT * ZOOM) / 2) + 32; // push down for scoreboard
   ctx.save();
   ctx.translate(offsetX, offsetY);
   ctx.scale(ZOOM, ZOOM);
-  // Draw ground
-  ctx.fillStyle = '#7ec850';
-  ctx.fillRect(0, GROUND_Y, COURT_WIDTH, COURT_HEIGHT - GROUND_Y);
-  // Draw court
-  ctx.fillStyle = '#bfcfff';
-  ctx.fillRect(0, 0, COURT_WIDTH, GROUND_Y);
-  // Draw net
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(COURT_WIDTH / 2 - 4, GROUND_Y - NET_HEIGHT, 8, NET_HEIGHT);
+
+  // --- Stadium Background ---
+  // Sky gradient
+  let grad = ctx.createLinearGradient(0, 0, 0, COURT_HEIGHT);
+  grad.addColorStop(0, '#3a4a7a'); // deep blue
+  grad.addColorStop(0.5, '#6ec6ff'); // sky blue
+  grad.addColorStop(0.8, '#ffe066'); // stadium lights
+  grad.addColorStop(1, '#e0b080'); // floor reflection
+  ctx.fillStyle = grad;
+  ctx.fillRect(-60, -60, COURT_WIDTH+120, COURT_HEIGHT+120);
+
+  // --- Stadium Stands (pixel-art style) ---
+  // Draw several rows of stands as rectangles with crowd dots
+  const standRows = 4;
+  const standHeight = 18;
+  const standColors = ['#232946', '#232946', '#232946', '#2a2e4a']; // more muted
+  for (let row = 0; row < standRows; row++) {
+    let y = 32 + row * standHeight;
+    ctx.fillStyle = standColors[row % standColors.length];
+    ctx.fillRect(-30, y, COURT_WIDTH+60, standHeight);
+    // Draw crowd heads as dots (less, smaller, muted)
+    for (let i = 0; i < 18; i++) {
+      let cx = (i / 18) * COURT_WIDTH + 8 + Math.random()*2 - 1;
+      let cy = y + standHeight - 6 + Math.random()*2 - 1;
+      let crowdColors = ['#232946', '#2a2e4a', '#3a3e5a', '#44486a', '#bfcfff']; // mostly dark
+      ctx.beginPath();
+      ctx.arc(cx, cy, 1.2 + Math.random()*0.6, 0, Math.PI*2);
+      ctx.fillStyle = crowdColors[Math.floor(Math.random()*crowdColors.length)];
+      ctx.globalAlpha = 0.25 + Math.random()*0.15;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // Spotlights
+  for (let i = 0; i < 3; i++) {
+    ctx.save();
+    ctx.globalAlpha = 0.12;
+    ctx.beginPath();
+    ctx.ellipse(COURT_WIDTH/2 + (i-1)*120, 0, 80, 180, 0, 0, Math.PI*2);
+    ctx.fillStyle = '#fffbe6';
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Crowd silhouettes
+  ctx.save();
+  ctx.globalAlpha = 0.13;
+  ctx.fillStyle = '#232946';
+  for (let i = 0; i < 40; i++) {
+    let x = (i/40) * COURT_WIDTH;
+    let h = 10 + Math.sin(i*0.7)*4 + Math.random()*4;
+    ctx.beginPath();
+    ctx.ellipse(x, 18+h, 16, h, 0, 0, Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+
+  // --- Court Floor ---
+  // Wood color with subtle gradient
+  let woodGrad = ctx.createLinearGradient(0, GROUND_Y-16, 0, COURT_HEIGHT+40);
+  woodGrad.addColorStop(0, '#e0b080');
+  woodGrad.addColorStop(1, '#b97a56');
+  ctx.fillStyle = woodGrad;
+  ctx.fillRect(0, GROUND_Y, COURT_WIDTH, COURT_HEIGHT - GROUND_Y + 40);
+  // Court colored area (side view, just a band)
+  ctx.fillStyle = '#2a4d8f';
+  ctx.fillRect(0, GROUND_Y-8, COURT_WIDTH, 8);
+
+  // Court lines
+  ctx.save();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2/ZOOM;
+  ctx.globalAlpha = 0.7;
+  // Baselines
+  ctx.beginPath();
+  ctx.moveTo(0, GROUND_Y);
+  ctx.lineTo(COURT_WIDTH, GROUND_Y);
+  ctx.moveTo(0, GROUND_Y-32);
+  ctx.lineTo(COURT_WIDTH, GROUND_Y-32);
+  ctx.stroke();
+  // Sidelines
+  ctx.beginPath();
+  ctx.moveTo(0, GROUND_Y-32);
+  ctx.lineTo(0, GROUND_Y);
+  ctx.moveTo(COURT_WIDTH, GROUND_Y-32);
+  ctx.lineTo(COURT_WIDTH, GROUND_Y);
+  ctx.stroke();
+  // Center line
+  ctx.beginPath();
+  ctx.moveTo(COURT_WIDTH/2, GROUND_Y-32);
+  ctx.lineTo(COURT_WIDTH/2, GROUND_Y);
+  ctx.stroke();
+  ctx.restore();
+
+  // --- Net Posts ---
+  ctx.save();
+  ctx.fillStyle = '#bbb';
+  ctx.strokeStyle = '#888';
+  ctx.lineWidth = 2/ZOOM;
+  // Left post
+  ctx.beginPath();
+  ctx.roundRect(COURT_WIDTH/2-8, GROUND_Y-NET_HEIGHT-16, 8, NET_HEIGHT+32, 4);
+  ctx.fill(); ctx.stroke();
+  // Right post
+  ctx.beginPath();
+  ctx.roundRect(COURT_WIDTH/2, GROUND_Y-NET_HEIGHT-16, 8, NET_HEIGHT+32, 4);
+  ctx.fill(); ctx.stroke();
+  ctx.restore();
+
+  // --- Net Mesh ---
+  ctx.save();
+  ctx.globalAlpha = 0.8;
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1/ZOOM;
+  for (let y = 0; y < NET_HEIGHT; y += 6) {
+    ctx.beginPath();
+    ctx.moveTo(COURT_WIDTH/2-4, GROUND_Y - NET_HEIGHT + y);
+    ctx.lineTo(COURT_WIDTH/2+4, GROUND_Y - NET_HEIGHT + y);
+    ctx.stroke();
+  }
+  for (let x = -4; x <= 4; x += 2) {
+    ctx.beginPath();
+    ctx.moveTo(COURT_WIDTH/2 + x, GROUND_Y - NET_HEIGHT);
+    ctx.lineTo(COURT_WIDTH/2 + x, GROUND_Y);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+
+  // --- Net Band ---
+  ctx.fillStyle = '#ffe066';
+  ctx.fillRect(COURT_WIDTH/2-5, GROUND_Y-NET_HEIGHT, 10, 7);
+  // Net shadow
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(COURT_WIDTH/2-4, GROUND_Y-NET_HEIGHT+7, 8, NET_HEIGHT-7);
+  ctx.globalAlpha = 1;
+
   ctx.restore();
 }
 
@@ -555,13 +780,40 @@ function drawBall() {
   ctx.save();
   ctx.translate(offsetX, offsetY);
   ctx.scale(ZOOM, ZOOM);
-  ctx.fillStyle = '#ffe066';
+  // Ball shadow
+  ctx.save();
+  ctx.globalAlpha = 0.25;
+  ctx.fillStyle = '#222';
+  ctx.beginPath();
+  ctx.ellipse(ballX, GROUND_Y-2, BALL_RADIUS*1.1, BALL_RADIUS*0.45, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+  // Ball main
+  ctx.save();
   ctx.beginPath();
   ctx.arc(ballX, ballY, BALL_RADIUS, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffe066';
+  ctx.shadowColor = '#fffbe6';
+  ctx.shadowBlur = 8;
   ctx.fill();
+  ctx.shadowBlur = 0;
   ctx.strokeStyle = '#e0b800';
   ctx.lineWidth = 2;
   ctx.stroke();
+  // Volleyball pattern
+  ctx.save();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1.2;
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    ctx.arc(ballX, ballY, BALL_RADIUS-1, (i/3)*Math.PI*2, ((i+1)/3)*Math.PI*2);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.ellipse(ballX, ballY, BALL_RADIUS-2, BALL_RADIUS/2, Math.PI/4, 0, Math.PI*2);
+  ctx.stroke();
+  ctx.restore();
+  ctx.restore();
   ctx.restore();
 }
 
@@ -571,6 +823,14 @@ function drawBat() {
   ctx.save();
   ctx.translate(offsetX, offsetY);
   ctx.scale(ZOOM, ZOOM);
+  // Bat shadow
+  ctx.save();
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = '#222';
+  ctx.beginPath();
+  ctx.ellipse(batX + SPRITE_SIZE/2, GROUND_Y-2, SPRITE_SIZE*0.38, 7, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
   // Animate
   batFrameTimer++;
   if (batFrameTimer >= batFrameSpeed) {
@@ -605,6 +865,14 @@ function drawAIBat() {
   ctx.save();
   ctx.translate(offsetX, offsetY);
   ctx.scale(ZOOM, ZOOM);
+  // Bat shadow
+  ctx.save();
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = '#222';
+  ctx.beginPath();
+  ctx.ellipse(aiBatX + SPRITE_SIZE/2, GROUND_Y-2, SPRITE_SIZE*0.38, 7, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
   ctx.save();
   ctx.translate(aiBatX, aiBatY);
   if (aiFacing === -1) {
@@ -632,6 +900,14 @@ function drawTeammateBat() {
   ctx.save();
   ctx.translate(offsetX, offsetY);
   ctx.scale(ZOOM, ZOOM);
+  // Bat shadow
+  ctx.save();
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = '#222';
+  ctx.beginPath();
+  ctx.ellipse(teammateBatX + SPRITE_SIZE/2, GROUND_Y-2, SPRITE_SIZE*0.38, 7, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
   ctx.save();
   ctx.translate(teammateBatX, teammateBatY);
   if (teammateFacing === -1) {
@@ -682,6 +958,14 @@ function drawAI2Bat() {
   ctx.save();
   ctx.translate(offsetX, offsetY);
   ctx.scale(ZOOM, ZOOM);
+  // Bat shadow
+  ctx.save();
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = '#222';
+  ctx.beginPath();
+  ctx.ellipse(ai2BatX + SPRITE_SIZE/2, GROUND_Y-2, SPRITE_SIZE*0.38, 7, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
   ctx.save();
   ctx.translate(ai2BatX, ai2BatY);
   if (ai2Facing === -1) {
@@ -759,43 +1043,120 @@ function updateAIServe() {
 // Draw serve overlay
 function drawServeOverlay() {
   ctx.save();
-  ctx.font = `bold ${Math.floor(canvas.height/18)}px 'Segoe UI', sans-serif`;
+  ctx.globalAlpha = 0.7;
+  ctx.fillStyle = '#232946';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.globalAlpha = 1;
+  ctx.font = `bold ${Math.floor(canvas.height/18)}px 'Press Start 2P', 'Segoe UI', sans-serif`;
   ctx.fillStyle = '#ffe066';
   ctx.textAlign = 'center';
   ctx.shadowColor = '#000';
   ctx.shadowBlur = 8;
+  let t = Date.now()/400;
+  let y = 120 + Math.sin(t)*8;
   if (server === 'player') {
-    ctx.fillText('Press Space to Serve!', canvas.width/2, 120);
+    ctx.fillText('Press Space to Serve!', canvas.width/2, y);
   } else {
-    ctx.fillText('AI Serving...', canvas.width/2, 120);
+    ctx.fillText('AI Serving...', canvas.width/2, y);
   }
   ctx.restore();
 }
 
+// --- Game Menu State ---
+let menuState = {
+  difficulty: 1, // 0: Easy, 1: Normal, 2: Hard
+  mode: 1, // 0: 1v1, 1: 2v2
+  selecting: 'mode', // 'mode' or 'difficulty' or 'start'
+};
+const DIFFICULTY_LABELS = ['Easy', 'Normal', 'Hard'];
+const MODE_LABELS = ['1v1', '2v2'];
+
 function drawStartScreen() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.save();
-  ctx.fillStyle = '#181824';
+  // Background gradient
+  let grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  grad.addColorStop(0, '#232946');
+  grad.addColorStop(1, '#12121c');
+  ctx.fillStyle = grad;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.font = `bold ${Math.floor(canvas.height/10)}px 'Press Start 2P', 'Courier New', monospace`;
+  // Animated overlay
+  ctx.save();
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = '#ffe066';
+  ctx.beginPath();
+  ctx.ellipse(canvas.width/2, canvas.height/2+40, 420, 80+Math.sin(Date.now()/400)*10, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+  // Title
+  ctx.save();
+  ctx.font = `bold ${Math.floor(canvas.height/9)}px 'Press Start 2P', 'Segoe UI', 'Courier New', monospace`;
   ctx.fillStyle = '#ffe066';
   ctx.textAlign = 'center';
   ctx.shadowColor = '#000';
+  ctx.shadowBlur = 16;
+  ctx.fillText('BAT VOLLEY', canvas.width/2, canvas.height/2 - 180);
+  ctx.restore();
+  // Menu Card
+  const cardW = 420, cardH = 320;
+  const cardX = canvas.width/2 - cardW/2, cardY = canvas.height/2 - cardH/2 + 30;
+  ctx.save();
+  ctx.globalAlpha = 0.92;
+  ctx.fillStyle = '#232946';
+  ctx.strokeStyle = '#ffe066';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 32);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+  // Menu Options
+  ctx.save();
+  ctx.font = `bold 32px 'Press Start 2P', 'Segoe UI', monospace`;
+  ctx.textAlign = 'center';
+  ctx.shadowColor = '#000';
   ctx.shadowBlur = 8;
-  ctx.fillText('BAT VOLLEY!', canvas.width/2, canvas.height/2 - 60);
-  ctx.font = `bold ${Math.floor(canvas.height/28)}px 'Press Start 2P', 'Courier New', monospace`;
-  ctx.fillStyle = '#fff';
+  // Mode
+  ctx.fillStyle = menuState.selecting === 'mode' ? '#ffe066' : '#fff';
+  ctx.fillText('Mode', canvas.width/2, cardY + 70);
+  MODE_LABELS.forEach((label, i) => {
+    ctx.font = menuState.mode === i ? `bold 30px 'Press Start 2P', monospace` : `24px 'Press Start 2P', monospace`;
+    ctx.fillStyle = menuState.mode === i ? '#ffe066' : '#bfcfff';
+    ctx.fillText(label, canvas.width/2 - 60 + i*120, cardY + 120);
+    if (menuState.mode === i) {
+      ctx.beginPath();
+      ctx.arc(canvas.width/2 - 60 + i*120, cardY + 130, 8, 0, Math.PI*2);
+      ctx.fillStyle = '#ffe066';
+      ctx.fill();
+    }
+  });
+  // Difficulty
+  ctx.font = `bold 32px 'Press Start 2P', 'Segoe UI', monospace`;
+  ctx.fillStyle = menuState.selecting === 'difficulty' ? '#ffe066' : '#fff';
+  ctx.fillText('Difficulty', canvas.width/2, cardY + 180);
+  DIFFICULTY_LABELS.forEach((label, i) => {
+    ctx.font = menuState.difficulty === i ? `bold 30px 'Press Start 2P', monospace` : `24px 'Press Start 2P', monospace`;
+    ctx.fillStyle = menuState.difficulty === i ? '#ffe066' : '#bfcfff';
+    ctx.fillText(label, canvas.width/2 - 100 + i*100, cardY + 230);
+    if (menuState.difficulty === i) {
+      ctx.beginPath();
+      ctx.arc(canvas.width/2 - 100 + i*100, cardY + 240, 8, 0, Math.PI*2);
+      ctx.fillStyle = '#ffe066';
+      ctx.fill();
+    }
+  });
+  // Start Button
+  ctx.font = `bold 36px 'Press Start 2P', 'Segoe UI', monospace`;
+  ctx.fillStyle = menuState.selecting === 'start' ? '#ffe066' : '#fff';
+  ctx.shadowBlur = 12;
+  ctx.fillText('START', canvas.width/2, cardY + 300);
+  ctx.restore();
+  // Controls hint
+  ctx.save();
+  ctx.font = `18px 'Press Start 2P', monospace`;
+  ctx.fillStyle = '#bfcfff';
+  ctx.textAlign = 'center';
   ctx.shadowBlur = 0;
-  ctx.fillText('Controls:', canvas.width/2, canvas.height/2 - 10);
-  ctx.fillText('Move: A/D or Left/Right', canvas.width/2, canvas.height/2 + 30);
-  ctx.fillText('Jump: W or Up', canvas.width/2, canvas.height/2 + 60);
-  ctx.fillText('Bump: S or Down', canvas.width/2, canvas.height/2 + 90);
-  ctx.fillText('Set: Q (ground/air)', canvas.width/2, canvas.height/2 + 120);
-  ctx.fillText('Spike: Shift (air, after set)', canvas.width/2, canvas.height/2 + 150);
-  ctx.fillText('Block: E (air, near net)', canvas.width/2, canvas.height/2 + 180);
-  ctx.font = `bold ${Math.floor(canvas.height/22)}px 'Press Start 2P', 'Courier New', monospace`;
-  ctx.fillStyle = '#ffe066';
-  ctx.fillText('Tap or Click to Start', canvas.width/2, canvas.height/2 + 240);
+  ctx.fillText('Use Arrow Keys or Tab/Enter to navigate. Esc to quit.', canvas.width/2, cardY + cardH + 32);
   ctx.restore();
 }
 
@@ -820,26 +1181,128 @@ window.addEventListener('keydown', startListener);
 window.addEventListener('mousedown', startGameFromScreen);
 window.addEventListener('touchstart', startGameFromScreen);
 
-function gameLoop() {
-  if (gameState === 'play') {
-    updateBat();
-    updateTeammateAI();
-    updateAIBat();
-    updateAI2Bat();
-    updateBall();
-  } else if (gameState === 'serve') {
-    updateAIServe();
+function drawDebug() {
+  // Draw hitboxes for all bats and the ball
+  const offsetX = (canvas.width / 2 - (COURT_WIDTH * ZOOM) / 2);
+  const offsetY = (canvas.height / 2 - (COURT_HEIGHT * ZOOM) / 2);
+  ctx.save();
+  ctx.translate(offsetX, offsetY);
+  ctx.scale(ZOOM, ZOOM);
+  ctx.globalAlpha = 0.5;
+  // Player bat
+  ctx.strokeStyle = '#00ff00';
+  ctx.beginPath();
+  ctx.arc(batX + SPRITE_SIZE/2, batY + SPRITE_SIZE/2, BAT_HITBOX_RADIUS, 0, Math.PI*2);
+  ctx.stroke();
+  // Teammate
+  ctx.strokeStyle = '#00bfff';
+  ctx.beginPath();
+  ctx.arc(teammateBatX + SPRITE_SIZE/2, teammateBatY + SPRITE_SIZE/2, BAT_HITBOX_RADIUS, 0, Math.PI*2);
+  ctx.stroke();
+  // AI 1
+  ctx.strokeStyle = '#ff0000';
+  ctx.beginPath();
+  ctx.arc(aiBatX + SPRITE_SIZE/2, aiBatY + SPRITE_SIZE/2, BAT_HITBOX_RADIUS, 0, Math.PI*2);
+  ctx.stroke();
+  // AI 2
+  ctx.strokeStyle = '#ff8800';
+  ctx.beginPath();
+  ctx.arc(ai2BatX + SPRITE_SIZE/2, ai2BatY + SPRITE_SIZE/2, BAT_HITBOX_RADIUS, 0, Math.PI*2);
+  ctx.stroke();
+  // Ball
+  ctx.strokeStyle = '#ffff00';
+  ctx.beginPath();
+  ctx.arc(ballX, ballY, BALL_RADIUS, 0, Math.PI*2);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.restore();
+  // Debug info (top left)
+  ctx.save();
+  ctx.font = '14px monospace';
+  ctx.fillStyle = '#ffe066';
+  ctx.textAlign = 'left';
+  let y = 80;
+  ctx.fillText(`Player: (${batX.toFixed(1)}, ${batY.toFixed(1)}) v=(${batVX.toFixed(2)}, ${batVY.toFixed(2)})`, 16, y); y += 18;
+  ctx.fillText(`Teammate: (${teammateBatX.toFixed(1)}, ${teammateBatY.toFixed(1)})`, 16, y); y += 18;
+  ctx.fillText(`AI1: (${aiBatX.toFixed(1)}, ${aiBatY.toFixed(1)}) vY=${aiBatVY.toFixed(2)}`, 16, y); y += 18;
+  ctx.fillText(`AI2: (${ai2BatX.toFixed(1)}, ${ai2BatY.toFixed(1)}) vY=${ai2BatVY.toFixed(2)}`, 16, y); y += 18;
+  ctx.fillText(`Ball: (${ballX.toFixed(1)}, ${ballY.toFixed(1)}) v=(${ballVX.toFixed(2)}, ${ballVY.toFixed(2)})`, 16, y); y += 18;
+  ctx.fillText(`Touches: Player=${playerTouches} AI=${aiTouches} Last=${lastTouchedBy}`, 16, y); y += 18;
+  ctx.fillText(`GameState: ${gameState} | Server: ${server}`, 16, y); y += 18;
+  ctx.fillText(`BatSkill: ${batSkill} | AI1Skill: ${aiSkill} | AI2Skill: ${ai2Skill} | TeammateSkill: ${teammateSkill}`, 16, y); y += 18;
+  ctx.restore();
+}
+
+// --- Particle System for Spike Effect ---
+let particles = [];
+function spawnSpikeParticles(x, y) {
+  for (let i = 0; i < 18; i++) {
+    let angle = Math.random() * Math.PI * 2;
+    let speed = 2 + Math.random() * 2;
+    particles.push({
+      x: x,
+      y: y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      alpha: 1,
+      radius: 2 + Math.random() * 2,
+      color: `hsl(${40 + Math.random()*40}, 100%, 60%)`,
+      life: 18 + Math.random()*8
+    });
   }
+}
+function updateParticles() {
+  for (let p of particles) {
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vx *= 0.92;
+    p.vy *= 0.92;
+    p.life--;
+    p.alpha = Math.max(0, p.life / 24);
+  }
+  particles = particles.filter(p => p.life > 0 && p.alpha > 0.01);
+}
+function drawParticles() {
+  const offsetX = (canvas.width / 2 - (COURT_WIDTH * ZOOM) / 2);
+  const offsetY = (canvas.height / 2 - (COURT_HEIGHT * ZOOM) / 2);
+  ctx.save();
+  ctx.translate(offsetX, offsetY);
+  ctx.scale(ZOOM, ZOOM);
+  for (let p of particles) {
+    ctx.globalAlpha = p.alpha;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.radius, 0, Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function gameLoop() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawScoreboard();
   drawCourt();
+  drawParticles();
   drawBall();
   drawTeammateBat();
   drawBat();
   drawPlayerArrow();
   drawAIBat();
   drawAI2Bat();
+  if (debugMode) drawDebug();
   if (gameState === 'serve') drawServeOverlay();
   if (gameState === 'start') drawStartScreen();
+  if (gameState === 'play') {
+    updateBat();
+    updateTeammateAI();
+    updateAIBat();
+    updateAI2Bat();
+    updateBall();
+    updateParticles();
+  } else if (gameState === 'serve') {
+    updateAIServe();
+  }
   requestAnimationFrame(gameLoop);
 }
 
